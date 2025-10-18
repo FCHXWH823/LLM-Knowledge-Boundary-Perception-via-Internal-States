@@ -9,6 +9,25 @@ This repo is used for decoder-only LMs' inference and the code is based on trans
 - Supporting task format: free-form generation; multi-choice qa
 - Currently, only single-GPU inference is supported.
 
+## Embedding Extraction Utility
+
+A standalone utility `extract_embeddings.py` is provided for extracting embeddings from LLM outputs:
+- Extracts the embedding of the **last token of input prompt**
+- Extracts embeddings of **each token in LLM response**
+- Supports extraction from **any specified layer** (all, last, mid, or specific layer number)
+
+See [EXTRACT_EMBEDDINGS_README.md](EXTRACT_EMBEDDINGS_README.md) for detailed usage.
+
+**Quick example:**
+```bash
+python extract_embeddings.py \
+    --model_path /path/to/model \
+    --prompt "What is machine learning?" \
+    --layer mid \
+    --max_new_tokens 30 \
+    --output_file embeddings.json
+```
+
 ## Usage
 
 ### Free-form Generation
