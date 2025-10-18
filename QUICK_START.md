@@ -51,9 +51,9 @@ print(f"Generated: {result['generated_text']}")
 print(f"Last input token: {result['last_input_token_text']}")
 print(f"Number of layers: {len(result['layers'])}")
 
-# Access embeddings
-last_input_emb = result['last_input_token_embedding']
-gen_token_embs = result['generated_tokens_embeddings']
+# Access embeddings (dict with layer keys)
+last_input_emb = result['last_input_token_embedding']  # {'layer_6': [0.1, 0.2, ...]}
+gen_token_embs = result['generated_tokens_embeddings']  # [{'token_id': 123, 'embeddings': {...}}]
 ```
 
 ## 📝 Key Arguments
