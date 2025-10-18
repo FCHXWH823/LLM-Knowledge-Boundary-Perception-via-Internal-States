@@ -40,12 +40,15 @@ def example_basic_usage():
     
     # Access embeddings
     print(f"\nLast input token: {result['last_input_token_text']}")
-    print(f"Last input token embedding shape: {len(result['last_input_token_embedding']['layer_6'])}")
+    # Dynamically get the first available layer key
+    layer_key = list(result['last_input_token_embedding'].keys())[0]
+    print(f"Last input token embedding shape: {len(result['last_input_token_embedding'][layer_key])}")
     
     print("\nFirst generated token:")
     first_token = result['generated_tokens_embeddings'][0]
     print(f"  Token: {first_token['token_text']}")
-    print(f"  Embedding shape: {len(first_token['embeddings']['layer_6'])}")
+    layer_key = list(first_token['embeddings'].keys())[0]
+    print(f"  Embedding shape: {len(first_token['embeddings'][layer_key])}")
     
     return result
 
@@ -123,15 +126,20 @@ def example_analyze_embeddings():
     import statistics
     
     print("\nAnalyzing last input token embedding:")
-    last_input_emb = result['last_input_token_embedding']['layer_6']
+    # Dynamically get the first available layer key
+    layer_key = list(result['last_input_token_embedding'].keys())[0]
+    last_input_emb = result['last_input_token_embedding'][layer_key]
+    print(f"  Layer: {layer_key}")
     print(f"  Mean: {statistics.mean(last_input_emb):.4f}")
     print(f"  Std Dev: {statistics.stdev(last_input_emb):.4f}")
     print(f"  Min: {min(last_input_emb):.4f}")
     print(f"  Max: {max(last_input_emb):.4f}")
     
     print("\nAnalyzing first generated token embedding:")
-    first_gen_emb = result['generated_tokens_embeddings'][0]['embeddings']['layer_6']
+    layer_key = list(result['generated_tokens_embeddings'][0]['embeddings'].keys())[0]
+    first_gen_emb = result['generated_tokens_embeddings'][0]['embeddings'][layer_key]
     print(f"  Token: {result['generated_tokens_embeddings'][0]['token_text']}")
+    print(f"  Layer: {layer_key}")
     print(f"  Mean: {statistics.mean(first_gen_emb):.4f}")
     print(f"  Std Dev: {statistics.stdev(first_gen_emb):.4f}")
     print(f"  Min: {min(first_gen_emb):.4f}")
