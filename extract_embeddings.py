@@ -6,28 +6,45 @@ This script extracts embeddings (hidden states) from LLM outputs:
 2. The embeddings of each token in the LLM response
 3. From a specified layer
 
-Usage:
+Supports both single prompt and batch processing of multiple prompts.
+
+Usage (single prompt):
     python extract_embeddings.py \
         --model_path /path/to/model \
         --prompt "What is the capital of France?" \
         --layer mid \
         --max_new_tokens 50
 
+Usage (batch processing):
+    python extract_embeddings.py \
+        --model_path /path/to/model \
+        --prompt "What is the capital of France?" "What is machine learning?" "Explain quantum computing" \
+        --layer mid \
+        --max_new_tokens 50
+
 Arguments:
     --model_path: Path to the pretrained model
-    --prompt: Input prompt text
+    --prompt: Input prompt text. Can provide multiple prompts for batch processing.
     --layer: Which layer to extract from. Options: 'all', 'last', 'mid', or a specific layer number (e.g., '16')
     --max_new_tokens: Maximum number of tokens to generate (default: 50)
     --output_file: Optional path to save the embeddings as JSON (default: None, prints to stdout)
     --device: Device to use for inference (default: 'cuda' if available, else 'cpu')
 
-Example:
+Example (single):
     python extract_embeddings.py \
         --model_path "meta-llama/Llama-2-7b-chat-hf" \
         --prompt "What is machine learning?" \
         --layer mid \
         --max_new_tokens 30 \
         --output_file embeddings.json
+
+Example (batch):
+    python extract_embeddings.py \
+        --model_path "meta-llama/Llama-2-7b-chat-hf" \
+        --prompt "What is AI?" "Define neural networks" "Explain deep learning" \
+        --layer mid \
+        --max_new_tokens 30 \
+        --output_file batch_embeddings.json
 """
 
 import argparse
@@ -107,20 +124,24 @@ class EmbeddingExtractor:
     
     def extract_embeddings(
         self,
-        prompt: str,
+        prompt: Union[str, List[str]],
         layer_spec: str = 'mid',
         max_new_tokens: int = 50
-    ) -> Dict:
+    ) -> Union[Dict, List[Dict]]:
         """
         Extract embeddings from the last input token and all response tokens.
+        Supports both single prompt and batch processing of multiple prompts.
         
         Args:
-            prompt: Input text prompt
+            prompt: Input text prompt (single string) or list of prompts for batch processing
             layer_spec: Which layer(s) to extract from ('all', 'last', 'mid', or layer number)
             max_new_tokens: Maximum number of tokens to generate
             
         Returns:
-            Dictionary containing:
+            If prompt is a string: Dictionary containing embedding data for single prompt
+            If prompt is a list: List of dictionaries, one for each prompt
+            
+            Dictionary structure:
                 - input_prompt: The input prompt text
                 - input_tokens: List of input token IDs
                 - input_text_tokens: List of input tokens as text
@@ -131,6 +152,11 @@ class EmbeddingExtractor:
                 - generated_tokens_embeddings: Embeddings for each generated token (per layer)
                 - layers: List of layer indices that were extracted
         """
+        # Handle batch processing
+        if isinstance(prompt, list):
+            return self._extract_embeddings_batch(prompt, layer_spec, max_new_tokens)
+        
+        # Single prompt processing
         print(f"\nProcessing prompt: {prompt}")
         
         # Tokenize input
@@ -223,6 +249,135 @@ class EmbeddingExtractor:
         }
         
         return result
+    
+    def _extract_embeddings_batch(
+        self,
+        prompts: List[str],
+        layer_spec: str = 'mid',
+        max_new_tokens: int = 50
+    ) -> List[Dict]:
+        """
+        Extract embeddings for a batch of prompts.
+        
+        Args:
+            prompts: List of input text prompts
+            layer_spec: Which layer(s) to extract from ('all', 'last', 'mid', or layer number)
+            max_new_tokens: Maximum number of tokens to generate
+            
+        Returns:
+            List of dictionaries, one for each prompt, containing embedding data
+        """
+        print(f"\nProcessing batch of {len(prompts)} prompts...")
+        
+        # Tokenize all prompts with padding
+        inputs = self.tokenizer(
+            prompts,
+            return_tensors='pt',
+            padding=True,
+            truncation=False
+        ).to(self.device)
+        
+        input_ids = inputs['input_ids']
+        attention_mask = inputs['attention_mask']
+        batch_size = input_ids.shape[0]
+        
+        print(f"Batch size: {batch_size}")
+        print(f"Max input length in batch: {input_ids.shape[1]} tokens")
+        
+        # Generate with hidden states
+        with torch.no_grad():
+            outputs = self.model.generate(
+                input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens,
+                output_hidden_states=True,
+                return_dict_in_generate=True,
+                do_sample=False,  # Greedy decoding
+                pad_token_id=self.tokenizer.pad_token_id
+            )
+        
+        # Get number of layers from hidden states
+        num_layers = len(outputs.hidden_states[0])
+        
+        # Determine which layers to extract
+        layer_indices = self._get_layer_indices(layer_spec, num_layers)
+        print(f"Extracting from layer(s): {layer_indices}")
+        
+        # Process each prompt in the batch
+        results = []
+        for batch_idx in range(batch_size):
+            # Get the actual input length for this prompt (excluding padding)
+            attention_mask_seq = attention_mask[batch_idx]
+            input_len = attention_mask_seq.sum().item()
+            
+            # Extract input tokens (without padding)
+            input_ids_seq = input_ids[batch_idx, :input_len]
+            
+            # Extract generated sequence
+            generated_ids = outputs.sequences[batch_idx]
+            generated_tokens_only = generated_ids[input_len:]
+            
+            # Decode texts
+            prompt = self.tokenizer.decode(input_ids_seq, skip_special_tokens=False)
+            generated_text = self.tokenizer.decode(generated_tokens_only, skip_special_tokens=True)
+            
+            print(f"\nPrompt {batch_idx + 1}: {prompts[batch_idx][:50]}...")
+            print(f"  Generated {len(generated_tokens_only)} tokens")
+            
+            # Extract last input token embedding
+            last_input_token_embeddings = {}
+            if len(outputs.hidden_states) > 0:
+                for layer_idx in layer_indices:
+                    # Get hidden state from initial forward pass for this batch item
+                    # Shape: (batch_size, seq_len, hidden_size)
+                    hidden_state = outputs.hidden_states[0][layer_idx]
+                    # Get the last non-padded token position for this sequence
+                    last_token_embedding = hidden_state[batch_idx, input_len - 1, :]
+                    last_input_token_embeddings[f"layer_{layer_idx}"] = last_token_embedding.cpu().float().tolist()
+            
+            # Extract embeddings for each generated token
+            generated_tokens_embeddings = []
+            
+            for gen_step, token_id in enumerate(generated_tokens_only):
+                token_embeddings = {}
+                # gen_step corresponds to the index in outputs.hidden_states
+                # Note: hidden_states[0] is from input, hidden_states[1:] are from generation
+                if gen_step + 1 < len(outputs.hidden_states):
+                    for layer_idx in layer_indices:
+                        # Get hidden state for this generation step
+                        # Shape: (batch_size, 1, hidden_size) for generation steps
+                        hidden_state = outputs.hidden_states[gen_step + 1][layer_idx]
+                        token_embedding = hidden_state[batch_idx, -1, :]  # Last position
+                        token_embeddings[f"layer_{layer_idx}"] = token_embedding.cpu().float().tolist()
+                
+                generated_tokens_embeddings.append({
+                    'token_id': int(token_id),
+                    'token_text': self.tokenizer.decode([token_id]),
+                    'embeddings': token_embeddings
+                })
+            
+            # Prepare result for this prompt
+            result = {
+                'input_prompt': prompts[batch_idx],
+                'input_tokens': input_ids_seq.cpu().tolist(),
+                'input_text_tokens': self.tokenizer.convert_ids_to_tokens(input_ids_seq),
+                'last_input_token_id': int(input_ids_seq[-1]),
+                'last_input_token_text': self.tokenizer.decode([input_ids_seq[-1]]),
+                'last_input_token_embedding': last_input_token_embeddings,
+                'generated_text': generated_text,
+                'generated_tokens': generated_tokens_only.cpu().tolist(),
+                'generated_text_tokens': self.tokenizer.convert_ids_to_tokens(generated_tokens_only),
+                'generated_tokens_embeddings': generated_tokens_embeddings,
+                'layers': layer_indices,
+                'layer_spec': layer_spec,
+                'num_layers': num_layers,
+                'hidden_size': outputs.hidden_states[0][0].shape[-1]
+            }
+            
+            results.append(result)
+        
+        print(f"\n✓ Processed {len(results)} prompts in batch")
+        return results
 
 
 def main():
@@ -242,8 +397,9 @@ def main():
     parser.add_argument(
         '--prompt',
         type=str,
+        nargs='+',
         required=True,
-        help='Input prompt text'
+        help='Input prompt text. Can provide multiple prompts for batch processing.'
     )
     
     parser.add_argument(
@@ -279,9 +435,12 @@ def main():
     # Create extractor
     extractor = EmbeddingExtractor(args.model_path, device=args.device)
     
+    # Prepare prompt(s) - if single prompt, convert to string, else keep as list
+    prompt_input = args.prompt[0] if len(args.prompt) == 1 else args.prompt
+    
     # Extract embeddings
     result = extractor.extract_embeddings(
-        prompt=args.prompt,
+        prompt=prompt_input,
         layer_spec=args.layer,
         max_new_tokens=args.max_new_tokens
     )
@@ -297,16 +456,33 @@ def main():
         print("EXTRACTION SUMMARY")
         print("="*80)
         print(f"Model: {args.model_path}")
-        print(f"Layers extracted: {result['layers']}")
-        print(f"Hidden size: {result['hidden_size']}")
-        print(f"\nInput prompt: {result['input_prompt']}")
-        print(f"Input tokens count: {len(result['input_tokens'])}")
-        print(f"Last input token: {result['last_input_token_text']} (ID: {result['last_input_token_id']})")
-        print(f"\nGenerated text: {result['generated_text']}")
-        print(f"Generated tokens count: {len(result['generated_tokens'])}")
-        print(f"\nEmbedding dimensions per layer: {result['hidden_size']}")
-        print(f"\nLast input token embedding shape: {len(result['last_input_token_embedding'])} layer(s)")
-        print(f"Generated tokens embeddings: {len(result['generated_tokens_embeddings'])} token(s)")
+        
+        # Handle both single and batch results
+        if isinstance(result, list):
+            # Batch results
+            print(f"Batch size: {len(result)}")
+            print(f"Layers extracted: {result[0]['layers']}")
+            print(f"Hidden size: {result[0]['hidden_size']}")
+            
+            for i, res in enumerate(result, 1):
+                print(f"\n--- Prompt {i}/{len(result)} ---")
+                print(f"Input prompt: {res['input_prompt']}")
+                print(f"Input tokens count: {len(res['input_tokens'])}")
+                print(f"Last input token: {res['last_input_token_text']} (ID: {res['last_input_token_id']})")
+                print(f"Generated text: {res['generated_text']}")
+                print(f"Generated tokens count: {len(res['generated_tokens'])}")
+        else:
+            # Single result
+            print(f"Layers extracted: {result['layers']}")
+            print(f"Hidden size: {result['hidden_size']}")
+            print(f"\nInput prompt: {result['input_prompt']}")
+            print(f"Input tokens count: {len(result['input_tokens'])}")
+            print(f"Last input token: {result['last_input_token_text']} (ID: {result['last_input_token_id']})")
+            print(f"\nGenerated text: {result['generated_text']}")
+            print(f"Generated tokens count: {len(result['generated_tokens'])}")
+            print(f"\nEmbedding dimensions per layer: {result['hidden_size']}")
+            print(f"\nLast input token embedding shape: {len(result['last_input_token_embedding'])} layer(s)")
+            print(f"Generated tokens embeddings: {len(result['generated_tokens_embeddings'])} token(s)")
         
         print("\n" + "="*80)
         print("To save full embeddings to a file, use --output_file option")
