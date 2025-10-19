@@ -8,6 +8,7 @@ This utility extracts embeddings (hidden states) from Language Model outputs, sp
 ## Features
 
 - Extract embeddings from any specified layer: `all`, `last`, `mid`, or a specific layer number
+- **Batch processing support**: Process multiple prompts efficiently in a single call
 - Support for both CUDA and CPU inference
 - Output in JSON format for easy processing
 - Standalone single file - easy to use and integrate
@@ -67,6 +68,26 @@ python extract_embeddings.py \
     --layer 16
 ```
 
+### Batch Processing (NEW!)
+
+Process multiple prompts efficiently in a single call:
+
+```bash
+# Process multiple prompts
+python extract_embeddings.py \
+    --model_path /path/to/model \
+    --prompt "What is AI?" "Define machine learning" "Explain neural networks" \
+    --layer mid \
+    --max_new_tokens 30 \
+    --output_file batch_embeddings.json
+```
+
+The batch processing feature:
+- Processes all prompts in parallel using padding for efficiency
+- Returns a list of results (one per prompt) when multiple prompts are provided
+- Maintains backward compatibility - single prompts still return a single dictionary
+- Handles prompts of different lengths automatically
+
 ### Specify Device
 
 ```bash
@@ -88,7 +109,7 @@ python extract_embeddings.py \
 | Argument | Type | Required | Default | Description |
 |----------|------|----------|---------|-------------|
 | `--model_path` | str | Yes | - | Path to the pretrained model (local path or HuggingFace model ID) |
-| `--prompt` | str | Yes | - | Input prompt text |
+| `--prompt` | str/list | Yes | - | Input prompt text. Can provide multiple prompts for batch processing. |
 | `--layer` | str | No | `mid` | Layer(s) to extract: `all`, `last`, `mid`, or a specific number (e.g., `16`) |
 | `--max_new_tokens` | int | No | `50` | Maximum number of tokens to generate |
 | `--output_file` | str | No | None | Path to save embeddings as JSON. If not provided, prints summary only |
@@ -200,12 +221,25 @@ python extract_embeddings.py \
     --output_file life_embeddings.json
 ```
 
-### Example 3: Use with Existing Models in Repository
+### Example 3: Batch Processing Multiple Prompts
+
+Process multiple prompts efficiently in one call:
+
+```bash
+python extract_embeddings.py \
+    --model_path gpt2 \
+    --prompt "What is AI?" "Machine learning basics" "Neural network architecture" \
+    --layer mid \
+    --max_new_tokens 20 \
+    --output_file batch_results.json
+```
+
+### Example 4: Use with Existing Models in Repository
 
 If you have models referenced in this repository:
 
 ```bash
-# Using with Llama-2-7B-Chat
+# Using with Llama-2-7B-Chat (single prompt)
 python extract_embeddings.py \
     --model_path ../models/llama2-chat-7b \
     --prompt "What is artificial intelligence?" \
@@ -213,13 +247,64 @@ python extract_embeddings.py \
     --max_new_tokens 50 \
     --output_file ai_embeddings.json
 
-# Using with Llama-3-8B-Instruct
+# Using with Llama-3-8B-Instruct (batch processing)
 python extract_embeddings.py \
     --model_path ../models/llama3-8b-instruct \
-    --prompt "Explain neural networks" \
+    --prompt "Explain neural networks" "What is deep learning?" "Define AI" \
     --layer all \
     --max_new_tokens 40 \
     --output_file neural_nets_all_layers.json
+```
+
+## Programmatic Usage (Python API)
+
+You can also use the `EmbeddingExtractor` class directly in your Python code:
+
+### Single Prompt
+
+```python
+from extract_embeddings import EmbeddingExtractor
+
+# Initialize extractor
+extractor = EmbeddingExtractor(model_path="gpt2", device="cpu")
+
+# Extract embeddings from single prompt
+result = extractor.extract_embeddings(
+    prompt="What is machine learning?",
+    layer_spec="mid",
+    max_new_tokens=30
+)
+
+# Access the results
+print(f"Generated text: {result['generated_text']}")
+print(f"Number of tokens: {len(result['generated_tokens'])}")
+```
+
+### Batch Processing
+
+```python
+from extract_embeddings import EmbeddingExtractor
+
+# Initialize extractor
+extractor = EmbeddingExtractor(model_path="gpt2", device="cpu")
+
+# Process multiple prompts efficiently
+prompts = [
+    "What is AI?",
+    "Define machine learning",
+    "Explain neural networks"
+]
+
+results = extractor.extract_embeddings(
+    prompt=prompts,  # Pass a list for batch processing
+    layer_spec="mid",
+    max_new_tokens=30
+)
+
+# Results is now a list of dictionaries
+for i, result in enumerate(results):
+    print(f"\nPrompt {i+1}: {result['input_prompt']}")
+    print(f"Generated: {result['generated_text']}")
 ```
 
 ## Integration with Existing Code
@@ -227,36 +312,43 @@ python extract_embeddings.py \
 This utility is designed as a standalone tool but follows similar patterns to the existing `utils/llm.py` in the repository. The key differences:
 
 1. **Simplified Interface**: Single function call to extract embeddings
-2. **Standalone**: No dependencies on other repository modules
-3. **Clear Output**: Structured JSON format for easy post-processing
-4. **Focused Purpose**: Specifically extracts last input token and all response token embeddings
+2. **Batch Processing**: Efficient processing of multiple prompts
+3. **Standalone**: No dependencies on other repository modules
+4. **Clear Output**: Structured JSON format for easy post-processing
+5. **Focused Purpose**: Specifically extracts last input token and all response token embeddings
 
 ## Technical Details
 
 ### Embedding Extraction Process
 
 1. **Input Processing**: 
-   - Tokenizes the input prompt
-   - Identifies the last token position
+   - Tokenizes the input prompt(s)
+   - For batch processing: applies padding to handle different prompt lengths
+   - Identifies the last token position for each prompt
 
 2. **Generation**:
    - Generates response tokens using greedy decoding
    - Captures hidden states at each generation step
+   - Processes multiple prompts in parallel for efficiency
 
 3. **Embedding Extraction**:
    - For the last input token: Extracts hidden state from the initial forward pass
    - For each generated token: Extracts hidden state from its generation step
    - Supports extraction from single or multiple layers
+   - Handles padding correctly to extract only real tokens
 
 4. **Output**:
    - Converts tensors to Python lists for JSON serialization
    - Converts float16 to float32 for compatibility
+   - Returns single dict for single prompt, list of dicts for batch
 
 ### Memory Considerations
 
 - Models are loaded in float16 on CUDA to save memory
 - For very long sequences, consider processing in smaller batches
 - Use specific layer extraction (not `all`) for large models to reduce memory usage
+- Batch processing uses padding, so memory usage scales with the longest prompt in the batch
+- For best efficiency, group prompts of similar lengths together when batch processing
 
 ## Compatibility
 
