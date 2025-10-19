@@ -186,9 +186,9 @@ def example_compare_layers():
 
 
 def example_batch_processing():
-    """Example: Process multiple prompts"""
+    """Example: Process multiple prompts sequentially (old way)"""
     print("\n" + "="*80)
-    print("EXAMPLE 6: Batch Processing")
+    print("EXAMPLE 6: Sequential Batch Processing (Old Way)")
     print("="*80)
     
     extractor = EmbeddingExtractor(model_path="gpt2", device="cpu")
@@ -210,14 +210,52 @@ def example_batch_processing():
         results.append(result)
         print(f"  Generated: {result['generated_text']}")
     
-    print(f"\n✓ Processed {len(results)} prompts")
+    print(f"\n✓ Processed {len(results)} prompts sequentially")
+    
+    # Save all results
+    output_file = "sequential_batch_embeddings.json"
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
+    
+    print(f"✓ All results saved to {output_file}")
+    
+    return results
+
+
+def example_batch_processing_new():
+    """Example: Process multiple prompts using batch processing (new way)"""
+    print("\n" + "="*80)
+    print("EXAMPLE 7: Efficient Batch Processing (New Way)")
+    print("="*80)
+    
+    extractor = EmbeddingExtractor(model_path="gpt2", device="cpu")
+    
+    prompts = [
+        "What is AI?",
+        "Define machine learning",
+        "Explain neural networks"
+    ]
+    
+    print(f"\nProcessing {len(prompts)} prompts in a single batch...")
+    results = extractor.extract_embeddings(
+        prompt=prompts,
+        layer_spec="mid",
+        max_new_tokens=15
+    )
+    
+    print(f"\n✓ Batch processing completed")
+    
+    # Display results
+    for i, result in enumerate(results, 1):
+        print(f"\nPrompt {i}: {result['input_prompt']}")
+        print(f"  Generated: {result['generated_text']}")
     
     # Save all results
     output_file = "batch_embeddings.json"
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
     
-    print(f"✓ All results saved to {output_file}")
+    print(f"\n✓ All results saved to {output_file}")
     
     return results
 
@@ -239,13 +277,15 @@ def main():
         example_analyze_embeddings()
         example_compare_layers()
         example_batch_processing()
+        example_batch_processing_new()
         
         print("\n" + "="*80)
         print("✓ ALL EXAMPLES COMPLETED SUCCESSFULLY")
         print("="*80)
         print("\nGenerated files:")
         print("  - example_embeddings.json")
-        print("  - batch_embeddings.json")
+        print("  - sequential_batch_embeddings.json")
+        print("  - batch_embeddings.json (using new batch processing)")
         
     except Exception as e:
         print(f"\n✗ Error running examples: {e}")

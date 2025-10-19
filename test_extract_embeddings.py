@@ -176,6 +176,198 @@ def test_json_serialization():
         return False
 
 
+def test_batch_processing():
+    """Test batch processing of multiple prompts"""
+    print("\n" + "="*80)
+    print("TEST: Batch Processing")
+    print("="*80)
+    
+    try:
+        print("\nInitializing extractor...")
+        extractor = EmbeddingExtractor(model_path="gpt2", device="cpu")
+        
+        print("\nTesting batch with 3 prompts...")
+        prompts = ["Hello", "World", "Test"]
+        results = extractor.extract_embeddings(
+            prompt=prompts,
+            layer_spec="mid",
+            max_new_tokens=5
+        )
+        
+        print(f"✓ Batch processing completed")
+        
+        # Verify result structure
+        print("\nVerifying batch results...")
+        assert isinstance(results, list), "Batch results should be a list"
+        assert len(results) == len(prompts), f"Should have {len(prompts)} results"
+        print(f"✓ Correct number of results: {len(results)}")
+        
+        # Verify each result in batch
+        for i, result in enumerate(results):
+            print(f"\nVerifying result {i+1}/{len(results)}...")
+            assert result['input_prompt'] == prompts[i], f"Prompt mismatch for result {i}"
+            assert 'input_tokens' in result
+            assert 'generated_tokens' in result
+            assert 'last_input_token_embedding' in result
+            assert 'generated_tokens_embeddings' in result
+            assert len(result['layers']) > 0
+            print(f"  ✓ Result {i+1} structure valid")
+            print(f"  ✓ Prompt: {result['input_prompt']}")
+            print(f"  ✓ Generated: {result['generated_text'][:30]}...")
+        
+        print("\n✓ Batch processing test passed")
+        return True
+        
+    except Exception as e:
+        print(f"\n✗ Batch processing test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def test_batch_consistency():
+    """Test that batch processing produces same results as sequential single processing"""
+    print("\n" + "="*80)
+    print("TEST: Batch Consistency")
+    print("="*80)
+    
+    try:
+        print("\nInitializing extractor...")
+        extractor = EmbeddingExtractor(model_path="gpt2", device="cpu")
+        
+        prompts = ["Hello", "Test"]
+        
+        print("\nProcessing prompts in batch...")
+        batch_results = extractor.extract_embeddings(
+            prompt=prompts,
+            layer_spec="mid",
+            max_new_tokens=5
+        )
+        
+        print("\nProcessing prompts individually...")
+        individual_results = []
+        for prompt in prompts:
+            result = extractor.extract_embeddings(
+                prompt=prompt,
+                layer_spec="mid",
+                max_new_tokens=5
+            )
+            individual_results.append(result)
+        
+        print("\nComparing results...")
+        for i, (batch_res, indiv_res) in enumerate(zip(batch_results, individual_results)):
+            print(f"\nComparing result {i+1}...")
+            # Check that the prompts match
+            assert batch_res['input_prompt'] == indiv_res['input_prompt'], "Prompt mismatch"
+            print(f"  ✓ Prompts match: {batch_res['input_prompt']}")
+            
+            # Check that generated tokens match
+            assert batch_res['generated_tokens'] == indiv_res['generated_tokens'], "Generated tokens mismatch"
+            print(f"  ✓ Generated tokens match")
+            
+            # Check that layer info matches
+            assert batch_res['layers'] == indiv_res['layers'], "Layers mismatch"
+            print(f"  ✓ Layers match")
+        
+        print("\n✓ Batch consistency test passed")
+        return True
+        
+    except Exception as e:
+        print(f"\n✗ Batch consistency test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def test_batch_with_different_lengths():
+    """Test batch processing with prompts of different lengths"""
+    print("\n" + "="*80)
+    print("TEST: Batch with Different Length Prompts")
+    print("="*80)
+    
+    try:
+        print("\nInitializing extractor...")
+        extractor = EmbeddingExtractor(model_path="gpt2", device="cpu")
+        
+        print("\nTesting batch with varying prompt lengths...")
+        prompts = [
+            "Hi",
+            "This is a longer prompt",
+            "Medium length"
+        ]
+        
+        results = extractor.extract_embeddings(
+            prompt=prompts,
+            layer_spec="mid",
+            max_new_tokens=5
+        )
+        
+        print(f"✓ Batch processing with different lengths completed")
+        
+        # Verify results
+        print("\nVerifying results...")
+        assert len(results) == len(prompts), "Should have result for each prompt"
+        
+        for i, result in enumerate(results):
+            print(f"\nPrompt {i+1}: '{prompts[i]}'")
+            print(f"  Input tokens: {len(result['input_tokens'])}")
+            print(f"  Generated tokens: {len(result['generated_tokens'])}")
+            assert result['input_prompt'] == prompts[i]
+            assert len(result['input_tokens']) > 0
+            assert len(result['generated_tokens']) > 0
+            print(f"  ✓ Result {i+1} valid")
+        
+        print("\n✓ Different lengths test passed")
+        return True
+        
+    except Exception as e:
+        print(f"\n✗ Different lengths test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def test_single_prompt_backward_compatibility():
+    """Test that single prompt (string) still works as before"""
+    print("\n" + "="*80)
+    print("TEST: Single Prompt Backward Compatibility")
+    print("="*80)
+    
+    try:
+        print("\nInitializing extractor...")
+        extractor = EmbeddingExtractor(model_path="gpt2", device="cpu")
+        
+        print("\nTesting single prompt as string...")
+        result = extractor.extract_embeddings(
+            prompt="Hello world",
+            layer_spec="mid",
+            max_new_tokens=5
+        )
+        
+        print("✓ Single prompt extraction completed")
+        
+        # Verify result is a dict (not a list)
+        print("\nVerifying result type...")
+        assert isinstance(result, dict), "Single prompt should return dict"
+        print("✓ Result is a dictionary (not a list)")
+        
+        # Verify structure
+        print("\nVerifying result structure...")
+        assert 'input_prompt' in result
+        assert 'generated_tokens' in result
+        assert 'last_input_token_embedding' in result
+        print("✓ Result structure is correct")
+        
+        print("\n✓ Backward compatibility test passed")
+        return True
+        
+    except Exception as e:
+        print(f"\n✗ Backward compatibility test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def main():
     """Run all tests"""
     print("="*80)
@@ -191,6 +383,10 @@ def main():
     results.append(("Basic Functionality", test_basic_functionality()))
     results.append(("Layer Specifications", test_layer_specifications()))
     results.append(("JSON Serialization", test_json_serialization()))
+    results.append(("Batch Processing", test_batch_processing()))
+    results.append(("Batch Consistency", test_batch_consistency()))
+    results.append(("Different Length Prompts", test_batch_with_different_lengths()))
+    results.append(("Backward Compatibility", test_single_prompt_backward_compatibility()))
     
     # Summary
     print("\n" + "="*80)
